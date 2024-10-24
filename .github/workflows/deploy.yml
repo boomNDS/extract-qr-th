@@ -1,0 +1,62 @@
+# File: .github/workflows/deploy.yml
+name: Deploy Colafare Page
+
+on:
+  push:
+    branches:
+      - main # Trigger on push to the main branch
+  workflow_dispatch:
+
+jobs:
+  build_and_deploy:
+    name: Build and Deploy to Cloudflare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "23" # Using Node.js version 23
+
+      - name: Install Dependencies
+        run: |
+          if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
+          elif [ -f package-lock.json ]; then npm ci; \
+          elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm install --frozen-lockfile; \
+          else echo "Lockfile not found" && exit 1; \
+          fi
+
+      - name: Build Project
+        run: |
+          if [ -f yarn.lock ]; then yarn build; \
+          elif [ -f package-lock.json ]; then npm run build; \
+          elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm run build; \
+          else echo "Lockfile not found" && exit 1; \
+          fi
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy YOUR_DIST_FOLDER --project-name=colafare-page
+
+      - name: Notify Telegram on Success
+        if: success()
+        run: |
+          MESSAGE="✅ Deployment of extract-qr-th *Colafare Page* succeeded for commit ${GITHUB_SHA::6}.\n Access your site at: ${{ steps.cloudflare.outputs.url }}."
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d text="$MESSAGE" \
+            -d parse_mode="Markdown"
+
+      - name: Notify Telegram on Failure
+        if: failure()
+        run: |
+          MESSAGE="❌ Deployment of extract-qr-th *Colafare Page* failed for commit ${GITHUB_SHA::6}. Check the logs for more details."
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage \
+            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+            -d text="$MESSAGE"
